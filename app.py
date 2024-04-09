@@ -6,7 +6,10 @@ import tensorflow_io as tfio
 import warnings 
 warnings.filterwarnings("ignore")
 
+from itertools import groupby
+
 import os
+import gc
 
 class CFG:
     FOREST_PATH  = os.path.join("data","Forest Recordings")
@@ -27,7 +30,7 @@ def get_model():
 model = get_model()
 
 model.load_weights(CFG.MODEL_WEIGHTS)
-
+print(model.summary())
 def load_mp3_16k_mono(filename):
     """ Load a WAV file, convert it to a float tensor, resample to 16 kHz single-channel audio. """
     res = tfio.audio.AudioIOTensor(filename)
@@ -51,4 +54,19 @@ def preprocess_mp3(sample, index):
     spectrogram = tf.expand_dims(spectrogram, axis=2)
     return spectrogram
 
-print(model.summary())
+sample_recording = os.listdir(CFG.FOREST_PATH)[0]
+wav = load_mp3_16k_mono(os.path.join(CFG.FOREST_PATH,sample_recording))
+# Making Audio SLices
+audio_slices = tf.keras.utils.timeseries_dataset_from_array(wav, wav, sequence_length=48000, sequence_stride=48000, batch_size=1)
+audio_slices = audio_slices.map(preprocess_mp3)
+audio_slices = audio_slices.batch(64)
+gc.collect()
+
+# Prediction
+ypred = model.predict(audio_slices)
+
+ypred = [1 if prediction > 0.99 else 0 for prediction in ypred]
+
+total_calls = sum([key for key,group in groupby(ypred)])
+
+print("\nTotal Calls: ",total_calls)
